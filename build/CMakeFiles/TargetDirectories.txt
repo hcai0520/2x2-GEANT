@@ -1,0 +1,3 @@
+/global/u2/h/hogcai/2x2-GEANT/build/CMakeFiles/g4Sim.dir
+/global/u2/h/hogcai/2x2-GEANT/build/CMakeFiles/edit_cache.dir
+/global/u2/h/hogcai/2x2-GEANT/build/CMakeFiles/rebuild_cache.dir
