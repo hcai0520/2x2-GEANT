@@ -22,8 +22,27 @@ FILTER="$PROJECT/scripts/filter.py"
 GEANT=${GEANT:-$PROJECT/build/g4Sim}
 JOB_LIST=${JOB_LIST:-job.csv}
 JOB_ID=${SLURM_ARRAY_TASK_ID:?Submit this script as a Slurm array}
+export MCP_FAST_BLIPS=${MCP_FAST_BLIPS:-1}
+
+case "$MCP_FAST_BLIPS" in
+    0|1) ;;
+    *) echo "MCP_FAST_BLIPS must be 0 or 1" >&2; exit 2 ;;
+esac
 
 cd "$PROJECT"
+
+# Resolve a relative profile path before Geant4 changes to its temporary directory.
+if [[ "$MCP_FAST_BLIPS" == 1 && -n "${MCP_BLIP_PROFILE:-}" ]]; then
+    case "$MCP_BLIP_PROFILE" in
+        /*) ;;
+        *) MCP_BLIP_PROFILE="$PWD/$MCP_BLIP_PROFILE" ;;
+    esac
+    export MCP_BLIP_PROFILE
+    if [[ ! -r "$MCP_BLIP_PROFILE" ]]; then
+        echo "Cannot read MCP_BLIP_PROFILE: $MCP_BLIP_PROFILE" >&2
+        exit 2
+    fi
+fi
 
 row=$("$PYTHON" - "$JOB_LIST" "$JOB_ID" <<'PY'
 import csv
@@ -61,8 +80,13 @@ WORK="/pscratch/sd/h/hogcai/mcp-geant4/tmp/${SLURM_ARRAY_JOB_ID}_${JOB_ID}"
 INPUT_CSV="$WORK/mcp_input.csv"
 RUN_MAC="$WORK/run.mac"
 FILTERED_ROOT="$WORK/selected.root"
-OUTPUT_DIR=${OUTPUT_DIR:-/pscratch/sd/h/hogcai/mcp-geant4/output}
-OUTPUT="$OUTPUT_DIR/mcp_${product}_${mass_tag}.root"
+if [[ "$MCP_FAST_BLIPS" == 1 ]]; then
+    OUTPUT_DIR=${OUTPUT_DIR:-/pscratch/sd/h/hogcai/mcp-geant4/output-fast}
+    OUTPUT="$OUTPUT_DIR/mcp_fast_${product}_${mass_tag}.root"
+else
+    OUTPUT_DIR=${OUTPUT_DIR:-/pscratch/sd/h/hogcai/mcp-geant4/output}
+    OUTPUT="$OUTPUT_DIR/mcp_${product}_${mass_tag}.root"
+fi
 
 mkdir -p "$WORK" "$OUTPUT_DIR"
 
@@ -98,13 +122,26 @@ export MCP_MASS_GEV="$mass"
     "$GEANT" "$RUN_MAC" 1
 )
 
-"$PYTHON" "$FILTER" "$WORK/mcp_02.root" "$FILTERED_ROOT"
-mv "$FILTERED_ROOT" "$OUTPUT"
-rm -f "$WORK/mcp_02.root" "$INPUT_CSV" "$RUN_MAC"
+if [[ "$MCP_FAST_BLIPS" == 1 ]]; then
+    if [[ ! -s "$WORK/mcp_fast.root" ]]; then
+        echo "Missing fast output; check that GEANT points to the rebuilt executable." >&2
+        exit 1
+    fi
+    mv "$WORK/mcp_fast.root" "$OUTPUT"
+else
+    "$PYTHON" "$FILTER" "$WORK/mcp_02.root" "$FILTERED_ROOT"
+    mv "$FILTERED_ROOT" "$OUTPUT"
+    rm -f "$WORK/mcp_02.root"
+fi
+rm -f "$INPUT_CSV" "$RUN_MAC"
 rmdir "$WORK" 2>/dev/null || true
 
 echo "emitter=$emitter"
 echo "product=$product"
 echo "mass_GeV=$mass"
 echo "events=$N_EVENTS"
+echo "fast_blips=$MCP_FAST_BLIPS"
+if [[ "$MCP_FAST_BLIPS" == 1 ]]; then
+    echo "blip_profile=${MCP_BLIP_PROFILE:-constant calibrated rate from N1/N0}"
+fi
 echo "output=$OUTPUT"
