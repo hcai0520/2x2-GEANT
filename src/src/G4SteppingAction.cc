@@ -47,6 +47,24 @@ G4SteppingAction::~G4SteppingAction() { ; }
 
 void G4SteppingAction::UserSteppingAction (const G4Step* aStep) {
 
+    if (fEventAction->FastBlipsEnabled()) {
+        const auto track = aStep->GetTrack();
+        const auto& name = track->GetDefinition()->GetParticleName();
+        if (track->GetParentID() == 0 &&
+            (name == "millicharged" || name == "antimillicharged")) {
+            const auto pre = aStep->GetPreStepPoint();
+            const auto post = aStep->GetPostStepPoint();
+            const auto volume = pre->GetPhysicalVolume();
+            const G4String volumeName = volume ? volume->GetName() : "";
+            const G4bool active = volumeName == "Prisms_M0" || volumeName == "Prisms_M1"
+                               || volumeName == "Prisms_M2" || volumeName == "Prisms_M3";
+            fEventAction->RecordFastStep(track->GetTrackID(), pre->GetPosition(),
+                                        post->GetPosition(), active);
+        }
+        // Transport and all physics processes continue; only pixel recording is bypassed.
+        return;
+    }
+
     fEventNumber = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
     
     //============================================================================
@@ -163,5 +181,4 @@ void G4SteppingAction::UserSteppingAction (const G4Step* aStep) {
     //}
        
 }
-
 

@@ -36,6 +36,7 @@ class G4RunAction : public G4UserRunAction
   private:
     G4Timer* timer;
     const DetectorConfig fConfig;
+    G4bool fastNtupleBooked = false;
 
 };
 

@@ -9,10 +9,13 @@
 #include "G4Event.hh"
 #include "G4UnitsTable.hh"
 #include "MyGlobals.hh"
+#include "G4Exception.hh"
+#include <limits>
+#include <stdexcept>
 
 //================================================================================
 
-G4EventAction::G4EventAction() : G4UserEventAction() {}
+G4EventAction::G4EventAction() : G4UserEventAction(), fastModel(FastBlipModel::Instance()) {}
 
 
 //================================================================================
@@ -26,6 +29,8 @@ void G4EventAction::BeginOfEventAction(const G4Event* /*event*/) {
     nOfReflections = 0;
     nOfDetections = 0;
     ResetMuonTrack();
+    activePath.clear();
+    primaryTrackID = -1;
 }
 
 //================================================================================
@@ -46,7 +51,52 @@ void G4EventAction::UpdateMuonTrack(const G4ThreeVector& prePos,
     muonEnd = postPos;
 }
 //================================================================================
+void G4EventAction::RecordFastStep(G4int trackID, const G4ThreeVector& pre,
+                                  const G4ThreeVector& post, G4bool active) {
+    if (primaryTrackID != -1 && primaryTrackID != trackID) {
+        G4Exception("G4EventAction::RecordFastStep", "FastBlip002", FatalException,
+                    "Fast blips require exactly one MCP primary per event.");
+        throw std::runtime_error("Multiple MCP primaries in fast mode");
+    }
+    primaryTrackID = trackID;
+    if (active) fastModel.AddStep(pre, post, activePath);
+}
+
+void G4EventAction::WriteFastBlips(const G4Event* event) {
+    FastBlipModel::Pair pair;
+    if (!event->IsAborted()) pair = fastModel.Sample(activePath);
+    else for (const auto& segment : activePath) pair.length += segment.length;
+    const G4int status = event->IsAborted() ? 2 : (pair.valid ? 1 : 0);
+    const G4double missing = std::numeric_limits<G4double>::quiet_NaN();
+    auto analysis = G4AnalysisManager::Instance();
+    const auto run = G4RunManager::GetRunManager()->GetCurrentRun();
+    analysis->FillNtupleIColumn(0, 0, run->GetRunID());
+    analysis->FillNtupleIColumn(0, 1, event->GetEventID());
+    analysis->FillNtupleIColumn(0, 2, status);
+    analysis->FillNtupleIColumn(0, 3, primaryTrackID);
+    analysis->FillNtupleIColumn(0, 4, static_cast<G4int>(activePath.size()));
+    const G4double values[] = {
+        pair.length / CLHEP::cm, pair.mean, pair.weight,
+        pair.valid ? pair.s1 / CLHEP::cm : missing,
+        pair.valid ? pair.s2 / CLHEP::cm : missing,
+        pair.valid ? pair.first.x() / CLHEP::cm : missing,
+        pair.valid ? pair.first.y() / CLHEP::cm : missing,
+        pair.valid ? pair.first.z() / CLHEP::cm : missing,
+        pair.valid ? pair.second.x() / CLHEP::cm : missing,
+        pair.valid ? pair.second.y() / CLHEP::cm : missing,
+        pair.valid ? pair.second.z() / CLHEP::cm : missing,
+        pair.valid ? (pair.second - pair.first).mag() / CLHEP::cm : missing
+    };
+    for (G4int i = 0; i < 12; ++i) analysis->FillNtupleDColumn(0, i + 5, values[i]);
+    // Include no-path and aborted events; never normalize by candidate rows alone.
+    analysis->AddNtupleRow(0);
+}
+
 void G4EventAction::EndOfEventAction(const G4Event* event) {
+    if (FastBlipsEnabled()) {
+        WriteFastBlips(event);
+        return;
+    }
     
     // Print number of reflections
     if (IMPRIMIR_EVENTOS == true) {

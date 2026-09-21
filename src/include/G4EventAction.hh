@@ -7,6 +7,7 @@
 #include "G4UserEventAction.hh"
 #include "globals.hh"
 #include "G4Event.hh"
+#include "FastBlipModel.hh"
 /// Event action class
 ///
 /// It defines data members to hold the energy deposit and track lengths
@@ -28,6 +29,9 @@ public:
                          const G4ThreeVector& postPos);
     G4ThreeVector GetMuonStart() const { return muonStart; }
     G4ThreeVector GetMuonEnd()   const { return muonEnd; }
+    G4bool FastBlipsEnabled() const { return fastModel.Enabled(); }
+    void RecordFastStep(G4int trackID, const G4ThreeVector& pre,
+                        const G4ThreeVector& post, G4bool active);
     
 public:
     G4int nOfReflections;
@@ -37,6 +41,10 @@ private:
     G4ThreeVector muonStart;
     G4ThreeVector muonEnd;
     G4bool hasMuonTrack;
+    const FastBlipModel& fastModel;
+    std::vector<FastBlipModel::Segment> activePath;
+    G4int primaryTrackID = -1;
+    void WriteFastBlips(const G4Event* event);
     
 };
 
@@ -44,4 +52,3 @@ private:
 //....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
 
 #endif
-

@@ -10,6 +10,8 @@
 #include "G4Analyser.hh"
 #include "G4AnalysisManager.hh"
 #include <fstream>
+#include "FastBlipModel.hh"
+#include <string>
 
 // #include "G4NeutronHPManager.hh"
 
@@ -48,6 +50,29 @@ void G4RunAction::BeginOfRunAction(const G4Run* aRun) {
     G4cout << "Using " << analysisManager->GetType() << " analysis manager." << G4endl;
     timer->Start();
     analysisManager->SetDefaultFileType("root");
+    if (FastBlipModel::Instance().Enabled()) {
+        // Keep separate files for multiple beamOn commands in the same process.
+        const G4String filename = aRun->GetRunID() == 0 ? "mcp_fast"
+            : "mcp_fast_run" + std::to_string(aRun->GetRunID());
+        analysisManager->SetVerboseLevel(0);
+        analysisManager->OpenFile(filename);
+        if (!fastNtupleBooked) {
+            analysisManager->CreateNtuple("FastBlips", "Weighted two-point MCP response");
+            for (const auto name : {"RunID", "EventID", "Status", "TrackID", "ActiveSegments"})
+                analysisManager->CreateNtupleIColumn(name);
+            for (const auto name : {"ActiveLength_cm", "MeanBlips", "PairWeight",
+                                   "s1_cm", "s2_cm", "x1_cm", "y1_cm", "z1_cm",
+                                   "x2_cm", "y2_cm", "z2_cm", "Distance_cm"})
+                analysisManager->CreateNtupleDColumn(name);
+            analysisManager->FinishNtuple();
+            analysisManager->CreateNtuple("RunSummary", "Geant4 event accounting");
+            analysisManager->CreateNtupleIColumn("RunID");
+            analysisManager->CreateNtupleIColumn("GeantEventCount");
+            analysisManager->FinishNtuple();
+            fastNtupleBooked = true;
+        }
+        return;
+    }
     analysisManager->OpenFile("mcp_02");
     analysisManager->SetVerboseLevel(0);
 
@@ -119,6 +144,11 @@ void G4RunAction::EndOfRunAction(const G4Run* aRun) {
     timer->Stop();
 
     auto analysisManager = G4AnalysisManager::Instance();
+    if (FastBlipModel::Instance().Enabled()) {
+        analysisManager->FillNtupleIColumn(1, 0, aRun->GetRunID());
+        analysisManager->FillNtupleIColumn(1, 1, aRun->GetNumberOfEvent());
+        analysisManager->AddNtupleRow(1);
+    }
     analysisManager->Write();
     analysisManager->CloseFile();
 
